@@ -1,0 +1,51 @@
+
+  fn free_memory(&mut self, object: usize) {
+    if object == 0 {
+      println!("free_memory no free of zero  {}", object);
+      return;
+    };
+    println!(
+      "free_memory {} with {} slots",
+      object,
+      self.get_size(object)
+    );
+    self.set_fl_next(object, self.head);
+    self.head = object;
+  }
+
+
+  fn sort_freelist(&mut self) {
+    println!("\nsort_freelist\n");
+    self.print_freelist();
+    println!("\n------------\n");
+
+    let mut free = self.get_free();
+    while free != 0 {
+      self.mark_object(free);
+      free = self.get_fl_next(free);
+    }
+    let mut scan = 1;
+    self.head = 0;
+    let mut tail = self.head;
+    while scan < MAX_MEMORY_SLOTS - 1 {
+      if self.is_marked(scan) {
+        self.unmark_object(scan);
+        if tail == 0 {
+          // first free object in memory order
+          self.head = scan;
+          self.set_fl_next(scan, 0);
+          tail = scan;
+        } else {
+          if self.next_object_in_heap(tail) == scan {
+            self.merge_two_objects(tail, scan);
+          } else {
+            self.set_fl_next(tail, scan);
+            self.set_fl_next(scan, 0);
+            tail = scan;
+          }
+        }
+      }
+      scan = self.next_object_in_heap(scan);
+    }
+    self.print_freelist();
+  }
