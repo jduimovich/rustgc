@@ -19,7 +19,7 @@
     self.print_freelist();
     println!("\n------------\n");
 
-    let mut free = self.get_free();
+    let mut free = self.head;
     while free != 0 {
       self.mark_object(free);
       free = self.get_fl_next(free);
