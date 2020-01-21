@@ -14,8 +14,8 @@ fn main() {
   let args: Vec<String> = env::args().collect();
 
   let mut mem = gc::Memory::initialze_memory();
-  println!( "New Heap  {} objects", mem.into_iter().count()); 
-  for obj in &mem  { 
+  println!( "New Heap  {} objects", mem.live_objects().count()); 
+  for obj in mem.live_objects()  { 
     println!( "New Heap, iterate over objects: {}", obj); 
   }
 
@@ -117,9 +117,9 @@ fn main() {
   
   mem.remove_root(root); 
   mem.gc();  
-  let mut size = 0;
-  for obj in &mem  { 
-    size += mem.element_size(obj) + gc::OBJECT_HEADER_SLOTS; 
+  let mut size = 0; 
+  for obj in mem.live_objects()  { 
+    size += mem.element_size(obj) + gc::OBJECT_HEADER_SLOTS;  
   } 
   println!( "No Roots - Post GC Current Heap has  {} objects with {} slots", mem.into_iter().count(), size);  
   mem.print_freelist();

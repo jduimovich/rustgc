@@ -1,11 +1,16 @@
+use std::mem;
 use std::time::SystemTime;
 
 const MAX_MEMORY_SLOTS: usize = 1024 * 128;
-pub const OBJECT_HEADER_SLOTS: usize = 1;
+type Bits = u128;
+const MARK_BITS_PER_SLOT: usize = mem::size_of::<Bits>();
+const MARK_BITS: usize = MAX_MEMORY_SLOTS / MARK_BITS_PER_SLOT;
 
+pub const OBJECT_HEADER_SLOTS: usize = 1;
 pub struct Memory {
   head: usize,
   mem: [usize; MAX_MEMORY_SLOTS],
+  mark_bits: [u128; MARK_BITS],
   roots: Vec<usize>,
   gc_count: usize,
   allocates: usize,
@@ -13,7 +18,6 @@ pub struct Memory {
   total_gc_ms: u128,
   lastgc_live_mem: usize,
   lastgc_free_mem: usize,
-  sum_mem_collected: usize,
   show_gc: bool,
   show_allocates: bool,
   show_heap_map: bool,
@@ -31,13 +35,11 @@ impl<'a> IntoIterator for &'a Memory {
     }
   }
 }
-
 pub struct MemoryIntoIterator<'a> {
   mem: &'a Memory,
   scan: usize,
   free: usize,
 }
-
 impl<'a> Iterator for MemoryIntoIterator<'a> {
   type Item = usize;
   fn next(&mut self) -> Option<Self::Item> {
@@ -64,6 +66,7 @@ impl Memory {
     let mut mem = Memory {
       head: 1,
       mem: [0; MAX_MEMORY_SLOTS],
+      mark_bits: [0; MARK_BITS],
       roots: Vec::new(),
       gc_count: 0,
       allocates: 0,
@@ -71,7 +74,6 @@ impl Memory {
       lastgc_free_mem: 0,
       last_gc_ms: 0,
       total_gc_ms: 0,
-      sum_mem_collected: 0,
       show_gc: false,
       show_allocates: false,
       show_heap_map: false,
@@ -104,6 +106,11 @@ impl Memory {
     }
     (result)
   }
+
+  pub fn live_objects(&self) -> MemoryIntoIterator {
+    return self.into_iter();
+  }
+
   pub fn add_root(&mut self, obj: usize) {
     self.roots.push(obj);
   }
@@ -115,21 +122,18 @@ impl Memory {
       }
     }
   }
-
   pub fn at_put(&mut self, obj: usize, index: usize, value: usize) {
-    let slot = OBJECT_HEADER_SLOTS + index;
-    if slot >= self.mem[obj] {
-      panic!("index out of range");
-    }
-    self.mem[obj + slot] = value;
+    let slots = self.mem[obj];
+    let base = obj+OBJECT_HEADER_SLOTS;
+    let object =&mut self.mem[ base.. base + slots ];
+    object[index]  = value;
   }
 
-  pub fn at(&self, obj: usize, index: usize) -> usize {
-    let slot = OBJECT_HEADER_SLOTS + index;
-    if slot >= self.mem[obj] {
-      panic!("index out of range");
-    }
-    return self.mem[obj + slot];
+  pub fn at(&self, obj: usize, index: usize) -> usize { 
+    let slots = self.mem[obj];
+    let base = obj+OBJECT_HEADER_SLOTS;
+    let object =&self.mem[ base.. base + slots ];
+    return object[index];
   }
   pub fn element_size(&self, obj: usize) -> usize {
     return self.mem[obj] - OBJECT_HEADER_SLOTS;
@@ -165,14 +169,14 @@ impl Memory {
   fn set_fl_next(&mut self, obj: usize, next: usize) {
     self.mem[obj + 1] = next;
   }
-  fn mark_object(&mut self, obj: usize) {
-    self.mem[obj] += 1;
+  fn mark_object(&mut self, obj: usize) { 
+    self.mark_bits[obj / MARK_BITS_PER_SLOT] |= 1 << (obj % MARK_BITS_PER_SLOT); 
   }
-  fn unmark_object(&mut self, obj: usize) {
-    self.mem[obj] -= 1;
+  fn unmark_object(&mut self, obj: usize) { 
+    self.mark_bits[obj / MARK_BITS_PER_SLOT] &= !(1 << (obj % MARK_BITS_PER_SLOT)); 
   }
-  fn is_marked(&self, obj: usize) -> bool {
-    (self.mem[obj] & 1) != 0
+  fn is_marked(&self, obj: usize) -> bool { 
+   ((self.mark_bits[obj / MARK_BITS_PER_SLOT] & (1 << (obj % MARK_BITS_PER_SLOT))) != 0 )
   }
 
   fn allocate_object_nocompress(&mut self, unrounded_size: usize) -> usize {
@@ -266,7 +270,6 @@ impl Memory {
       }
       scan = self.next_object_in_heap(scan);
     }
-    self.sum_mem_collected += self.lastgc_free_mem;
     if self.show_free_list {
       self.print_freelist();
     }
@@ -288,42 +291,45 @@ impl Memory {
 
   pub fn print_gc_stats(&self) {
     println!(
-    "{} gcs, {} object allocates, Last GC: Live {} Dead {} in {} ms, Lifetime Collected {} in {} ms\n",
-    self.gc_count,
-    self.allocates,
-    self.lastgc_live_mem,
-    self.lastgc_free_mem,
-    self.last_gc_ms,
-    self.sum_mem_collected,
-    self.total_gc_ms,
-  );
+      "{} gcs, {} object allocates, Last GC: Live {} Dead {} in {} ms, Lifetime GC {} ms\n",
+      self.gc_count,
+      self.allocates,
+      self.lastgc_live_mem,
+      self.lastgc_free_mem,
+      self.last_gc_ms,
+      self.total_gc_ms,
+    );
   }
 
   fn print_heap(&mut self) {
     print!("\x1B[{};{}H", 1, 1);
-    let mut free = self.head;
-    while free != 0 {
-      self.mark_object(free);
-      free = self.get_fl_next(free);
-    }
+
     let mut scan = 1;
     let mut count = 0;
+    let mut free = self.head;
     while scan < MAX_MEMORY_SLOTS - 1 {
-      let c;
-      if self.is_marked(scan) {
-        self.unmark_object(scan);
-        c = 'x';
+      // skip free ones, print x's //
+      let mut num_chars_to_print = 0;
+      let mut char_to_print = '?';
+      if scan == free {
+        while scan == free {
+          char_to_print = 'x';
+          num_chars_to_print += self.get_size(scan);
+          scan = self.next_object_in_heap(free);
+          free = self.get_fl_next(free);
+        }
       } else {
-        c = '.';
+        char_to_print = '.';
+        num_chars_to_print += self.get_size(scan);
+        scan = self.next_object_in_heap(scan);
       }
-      for _i in 1..self.get_size(scan) {
-        print!("{}", c);
+      for _i in 1..num_chars_to_print / 2 {
+        print!("{}", char_to_print);
         count += 1;
         if count % 120 == 0 {
           print!("\n");
         }
       }
-      scan = self.next_object_in_heap(scan);
     }
     self.print_gc_stats();
   }
