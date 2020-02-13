@@ -8,3 +8,9 @@ edition = "2018"
 
 [dependencies]
 rand = "0.3"
+
+[features]
+# no features by default
+default = []
+# dynamic_mem uses vectors vs arrays
+dynamic_mem = []

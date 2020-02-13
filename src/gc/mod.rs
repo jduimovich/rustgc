@@ -1,15 +1,28 @@
 use std::mem;
 use std::time::SystemTime;
+ 
 
+
+#[cfg(feature="dynamic_mem")] 
+const MAX_MEMORY_SLOTS: usize = 1024 * 1024 * 2;
+#[cfg(not(feature="dynamic_mem"))]
 const MAX_MEMORY_SLOTS: usize = 1024 * 128;
+
 type Bits = u128;
 const MARK_BITS_PER_SLOT: usize = mem::size_of::<Bits>();
 const MARK_BITS: usize = MAX_MEMORY_SLOTS / MARK_BITS_PER_SLOT;
 
+#[cfg(feature="dynamic_mem")] 
+type Mem = Vec<usize>;
+#[cfg(not(feature="dynamic_mem"))]
+type Mem = [usize; MAX_MEMORY_SLOTS] ;
+
 pub const OBJECT_HEADER_SLOTS: usize = 1;
 pub struct Memory {
   head: usize,
-  mem: [usize; MAX_MEMORY_SLOTS],
+ 
+  mem: Mem,  
+
   mark_bits: [u128; MARK_BITS],
   roots: Vec<usize>,
   gc_count: usize,
@@ -59,13 +72,24 @@ impl<'a> Iterator for MemoryIntoIterator<'a> {
       return Some(self.scan);
     }
   }
-}
+} 
+
+#[cfg(feature = "dynamic_mem")] 
+fn im() -> Mem { 
+  return vec![0; MAX_MEMORY_SLOTS];
+} 
+#[cfg(not(feature = "dynamic_mem"))] 
+fn im() -> Mem { 
+  return [0; MAX_MEMORY_SLOTS];
+} 
 
 impl Memory {
   pub fn initialze_memory() -> Memory {
     let mut mem = Memory {
       head: 1,
-      mem: [0; MAX_MEMORY_SLOTS],
+   
+      mem: im(),
+
       mark_bits: [0; MARK_BITS],
       roots: Vec::new(),
       gc_count: 0,
@@ -100,7 +124,7 @@ impl Memory {
       result = self.allocate_object_nocompress(unrounded_size);
       if result == 0 {
         self.print_freelist();
-        self.print_heap();
+        self.print_heap(); 
         panic!("out of memory");
       }
     }

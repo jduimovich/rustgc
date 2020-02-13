@@ -5,15 +5,16 @@ use std::io::Write;
 
 use std::env;
 
-const LOOP: usize = 20000;
-const MAX_OBJECT_SIZE: usize = 128;
-const NUMBER_OF_ROOTS: usize = 32;
+const LOOP: usize = 500000;
+const MAX_OBJECT_SIZE: usize = 32;
+const NUMBER_OF_ROOTS: usize = 8;
 
 fn main() {
 
   let args: Vec<String> = env::args().collect();
 
   let mut mem = gc::Memory::initialze_memory();
+  println!( "New Heap Size {}", mem.element_size(0)); 
   println!( "New Heap  {} objects", mem.live_objects().count()); 
   for obj in mem.live_objects()  { 
     println!( "New Heap, iterate over objects: {}", obj); 
@@ -90,37 +91,31 @@ fn main() {
       }
     }
     count += 1;
-    if count % 100 == 0 {
+    if count % 10000 == 0 {
       print!("{}.", count);
       let r = stdout().flush();
       if r.is_err() {
         print!("Error {} occured\n", r.unwrap_err());
       }
     }
-    if count % 1000 == 0 {
+    if count % 100000 == 0 {
       print!("\n"); 
-      mem.print_gc_stats();
-      let mut size = 0;
-      for obj in &mem  { 
-        size += mem.element_size(obj) + gc::OBJECT_HEADER_SLOTS; 
-      }
-      println!( "Current Heap has  {} objects with {} slots", mem.into_iter().count(), size); 
     }
   } 
 
+  print!("\n"); 
+  mem.print_gc_stats();
+
   mem.gc();   
-  let mut size = 0;
-  for obj in &mem  { 
-    size += mem.element_size(obj) + gc::OBJECT_HEADER_SLOTS; 
-  }
-  println!( "Post GC - Current Heap has  {} objects with {} slots", mem.into_iter().count(), size);  
+  let liveset:usize = mem.live_objects().map(|o| mem.element_size(o) + gc::OBJECT_HEADER_SLOTS).sum();
+  println!( "Post GC - Current Heap has  {} objects with {} slots", mem.into_iter().count(), liveset);  
   
   mem.remove_root(root); 
   mem.gc();  
-  let mut size = 0; 
-  for obj in mem.live_objects()  { 
-    size += mem.element_size(obj) + gc::OBJECT_HEADER_SLOTS;  
-  } 
-  println!( "No Roots - Post GC Current Heap has  {} objects with {} slots", mem.into_iter().count(), size);  
+  let liveset:usize = mem.live_objects().map(|o| mem.element_size(o) + gc::OBJECT_HEADER_SLOTS).sum();
+  println!( "No Roots - Current Heap has  {} objects with {} slots", mem.into_iter().count(), liveset);  
+   
+  println!( "Run Heap Size is {}", mem.element_size(0)); 
   mem.print_freelist();
+
 }
