@@ -106,7 +106,7 @@ impl Memory {
     mem.set_size(0, MAX_MEMORY_SLOTS); // magic memory at zero is heap_size
     mem.set_size(mem.head, MAX_MEMORY_SLOTS - 2); // set initial object size as all heap
     mem.set_fl_next(mem.head, 0);
-    (mem)
+    mem
   }
 
   // objects API
@@ -128,7 +128,7 @@ impl Memory {
         panic!("out of memory");
       }
     }
-    (result)
+    result
   }
 
   pub fn live_objects(&self) -> MemoryIntoIterator {
@@ -200,7 +200,7 @@ impl Memory {
     self.mark_bits[obj / MARK_BITS_PER_SLOT] &= !(1 << (obj % MARK_BITS_PER_SLOT)); 
   }
   fn is_marked(&self, obj: usize) -> bool { 
-   ((self.mark_bits[obj / MARK_BITS_PER_SLOT] & (1 << (obj % MARK_BITS_PER_SLOT))) != 0 )
+   (self.mark_bits[obj / MARK_BITS_PER_SLOT] & (1 << (obj % MARK_BITS_PER_SLOT))) != 0 
   }
 
   fn allocate_object_nocompress(&mut self, unrounded_size: usize) -> usize {
@@ -242,7 +242,7 @@ impl Memory {
       }
       free = self.get_fl_next(free);
     }
-    (0)
+    0
   }
 
   pub fn gc(&mut self) {
