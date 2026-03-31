@@ -1,18 +1,18 @@
-use std::mem;
+
 use std::time::SystemTime;
- 
 
 
-#[cfg(feature="dynamic_mem")] 
-const MAX_MEMORY_SLOTS: usize = 1024 * 1024 * 2;
+
+#[cfg(feature="dynamic_mem")]
+const MAX_MEMORY_SLOTS: usize = 1024 * 1024 * 4;
 #[cfg(not(feature="dynamic_mem"))]
 const MAX_MEMORY_SLOTS: usize = 1024 * 128;
 
 type Bits = u128;
-const MARK_BITS_PER_SLOT: usize = mem::size_of::<Bits>();
+const MARK_BITS_PER_SLOT: usize = 128;
 const MARK_BITS: usize = MAX_MEMORY_SLOTS / MARK_BITS_PER_SLOT;
 
-#[cfg(feature="dynamic_mem")] 
+#[cfg(feature="dynamic_mem")]
 type Mem = Vec<usize>;
 #[cfg(not(feature="dynamic_mem"))]
 type Mem = [usize; MAX_MEMORY_SLOTS] ;
@@ -20,10 +20,10 @@ type Mem = [usize; MAX_MEMORY_SLOTS] ;
 pub const OBJECT_HEADER_SLOTS: usize = 1;
 pub struct Memory {
   head: usize,
- 
-  mem: Mem,  
 
-  mark_bits: [u128; MARK_BITS],
+  mem: Mem,
+
+  mark_bits: [Bits; MARK_BITS],
   roots: Vec<usize>,
   gc_count: usize,
   allocates: usize,
@@ -72,22 +72,22 @@ impl<'a> Iterator for MemoryIntoIterator<'a> {
       return Some(self.scan);
     }
   }
-} 
+}
 
-#[cfg(feature = "dynamic_mem")] 
-fn im() -> Mem { 
+#[cfg(feature = "dynamic_mem")]
+fn im() -> Mem {
   return vec![0; MAX_MEMORY_SLOTS];
-} 
-#[cfg(not(feature = "dynamic_mem"))] 
-fn im() -> Mem { 
+}
+#[cfg(not(feature = "dynamic_mem"))]
+fn im() -> Mem {
   return [0; MAX_MEMORY_SLOTS];
-} 
+}
 
 impl Memory {
   pub fn initialze_memory() -> Memory {
     let mut mem = Memory {
       head: 1,
-   
+
       mem: im(),
 
       mark_bits: [0; MARK_BITS],
@@ -124,7 +124,7 @@ impl Memory {
       result = self.allocate_object_nocompress(unrounded_size);
       if result == 0 {
         self.print_freelist();
-        self.print_heap(); 
+        self.print_heap();
         panic!("out of memory");
       }
     }
@@ -153,7 +153,7 @@ impl Memory {
     object[index]  = value;
   }
 
-  pub fn at(&self, obj: usize, index: usize) -> usize { 
+  pub fn at(&self, obj: usize, index: usize) -> usize {
     let slots = self.mem[obj];
     let base = obj+OBJECT_HEADER_SLOTS;
     let object =&self.mem[ base.. base + slots ];
@@ -193,21 +193,38 @@ impl Memory {
   fn set_fl_next(&mut self, obj: usize, next: usize) {
     self.mem[obj + 1] = next;
   }
-  fn mark_object(&mut self, obj: usize) { 
-    self.mark_bits[obj / MARK_BITS_PER_SLOT] |= 1 << (obj % MARK_BITS_PER_SLOT); 
+  fn mark_object(&mut self, obj: usize) {
+    self.mark_bits[obj / MARK_BITS_PER_SLOT] |= 1 << (obj % MARK_BITS_PER_SLOT);
   }
-  fn unmark_object(&mut self, obj: usize) { 
-    self.mark_bits[obj / MARK_BITS_PER_SLOT] &= !(1 << (obj % MARK_BITS_PER_SLOT)); 
+  fn unmark_object(&mut self, obj: usize) {
+    self.mark_bits[obj / MARK_BITS_PER_SLOT] &= !(1 << (obj % MARK_BITS_PER_SLOT));
   }
-  fn is_marked(&self, obj: usize) -> bool { 
-   (self.mark_bits[obj / MARK_BITS_PER_SLOT] & (1 << (obj % MARK_BITS_PER_SLOT))) != 0 
+  fn is_marked(&self, obj: usize) -> bool {
+   (self.mark_bits[obj / MARK_BITS_PER_SLOT] & (1 << (obj % MARK_BITS_PER_SLOT))) != 0
+  }
+
+  fn clear_mark_bits(&mut self) {
+    for i in 0..MARK_BITS {
+      self.mark_bits[i] = 0;
+    }
   }
 
   fn allocate_object_nocompress(&mut self, unrounded_size: usize) -> usize {
     let size = Memory::rounded_size(unrounded_size + OBJECT_HEADER_SLOTS);
-    let mut free = self.head;
+    let mut free: usize = self.head;
+    let mut prev: usize = 0;
     while free != 0 {
       let avail = self.get_size(free);
+      // if avail == size  {
+      //   if prev != 0 && self.get_fl_next(free) != 0 {
+      //     if prev == 0  {
+      //       self.head = self.get_fl_next(free);
+      //     } else {
+      //       self.set_fl_next(prev, self.get_fl_next(free));
+      //     }
+      //     return free;
+      //   }
+      // }
       if avail > size {
         let newsize = avail - size;
         if newsize < 2 {
@@ -240,6 +257,7 @@ impl Memory {
         }
         return new_object;
       }
+      prev = free;
       free = self.get_fl_next(free);
     }
     0
@@ -274,7 +292,7 @@ impl Memory {
     self.lastgc_live_mem = 0;
     while scan < MAX_MEMORY_SLOTS - 1 {
       if self.is_marked(scan) {
-        self.unmark_object(scan);
+        //self.unmark_object(scan);  // skip here, clear af
         self.lastgc_live_mem += self.get_size(scan);
       } else {
         self.lastgc_free_mem += self.get_size(scan);
@@ -294,6 +312,8 @@ impl Memory {
       }
       scan = self.next_object_in_heap(scan);
     }
+    self.clear_mark_bits();
+
     if self.show_free_list {
       self.print_freelist();
     }
