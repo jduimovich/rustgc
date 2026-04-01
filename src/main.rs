@@ -14,10 +14,10 @@ fn main() {
   let args: Vec<String> = env::args().collect();
 
   let mut mem = gc::Memory::initialze_memory();
-  println!( "New Heap Size {}", mem.element_size(0)); 
-  println!( "New Heap  {} objects", mem.live_objects().count()); 
-  for obj in mem.live_objects()  { 
-    println!( "New Heap, iterate over objects: {}", obj); 
+  println!( "New Heap Size {}", mem.element_size(0));
+  println!( "New Heap  {} objects", mem.live_objects().count());
+  for obj in mem.live_objects()  {
+    println!( "New Heap, iterate over objects: {}", obj);
   }
 
   for i in 0..args.len() {
@@ -35,7 +35,7 @@ fn main() {
     }
     if args[i] == "help" {
       println!(
-        "GC Demo Options: 
+        "GC Demo Options:
         \t allocates (default off) - show all allocates\n
         \t freelist (default off) - show freelist every gc \n
         \t heap (default off) - show heap every gc\n
@@ -48,19 +48,19 @@ fn main() {
   let root = mem.allocate_object(NUMBER_OF_ROOTS);
   mem.add_root(root);
   // fill in more objects off this single root
-  for i in 0..mem.element_size(root) { 
+  for i in 0..mem.element_size(root) {
     let allocated = mem.allocate_object(rnd::rnd_sz(MAX_OBJECT_SIZE));
-    mem.at_put(root, i, allocated);  
+    mem.at_put(root, i, allocated);
   }
 
   let mut count = 0;
   while count < LOOP {
     for i in 0..mem.element_size(root) {
-      let myobj = mem.at(root,i);
       if i == rnd::rnd_sz(mem.element_size(root)) {
-        let allocated = mem.allocate_object(rnd::rnd_sz(MAX_OBJECT_SIZE));  
-        mem.at_put(root, i, allocated);  
+        let allocated = mem.allocate_object(rnd::rnd_sz(MAX_OBJECT_SIZE));
+        mem.at_put(root, i, allocated);
       } else {
+        let myobj = mem.at(root,i);
         for j in 0..mem.element_size(myobj) {
           let prev = mem.at(myobj, j);
           if prev != 0 {
@@ -99,23 +99,23 @@ fn main() {
       }
     }
     if count % 100000 == 0 {
-      print!("\n"); 
+      print!("\n");
     }
-  } 
+  }
 
-  print!("\n"); 
+  print!("\n");
   mem.print_gc_stats();
 
-  mem.gc();   
+  mem.gc();
   let liveset:usize = mem.live_objects().map(|o| mem.element_size(o) + gc::OBJECT_HEADER_SLOTS).sum();
-  println!( "Post GC - Current Heap has  {} objects with {} slots", mem.into_iter().count(), liveset);  
-  
-  mem.remove_root(root); 
-  mem.gc();  
+  println!( "Post GC - Current Heap has  {} objects with {} slots", mem.into_iter().count(), liveset);
+
+  mem.remove_root(root);
+  mem.gc();
   let liveset:usize = mem.live_objects().map(|o| mem.element_size(o) + gc::OBJECT_HEADER_SLOTS).sum();
-  println!( "No Roots - Current Heap has  {} objects with {} slots", mem.into_iter().count(), liveset);  
-   
-  println!( "Run Heap Size is {}", mem.element_size(0)); 
+  println!( "No Roots - Current Heap has  {} objects with {} slots", mem.into_iter().count(), liveset);
+
+  println!( "Run Heap Size is {}", mem.element_size(0));
   mem.print_freelist();
 
 }

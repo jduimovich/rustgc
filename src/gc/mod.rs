@@ -215,16 +215,17 @@ impl Memory {
     let mut prev: usize = 0;
     while free != 0 {
       let avail = self.get_size(free);
-      // if avail == size  {
-      //   if prev != 0 && self.get_fl_next(free) != 0 {
-      //     if prev == 0  {
-      //       self.head = self.get_fl_next(free);
-      //     } else {
-      //       self.set_fl_next(prev, self.get_fl_next(free));
-      //     }
-      //     return free;
-      //   }
-      // }
+      if avail == size {
+        if prev == 0 {
+          self.head = self.get_fl_next(free);
+        } else {
+          self.set_fl_next(prev, self.get_fl_next(free));
+        }
+        for index in 0..self.element_size(free) {
+          self.at_put(free, index, 0);
+        }
+        return free;
+      }
       if avail > size {
         let newsize = avail - size;
         if newsize < 2 {
