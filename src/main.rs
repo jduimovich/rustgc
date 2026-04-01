@@ -24,6 +24,9 @@ fn main() {
     if args[i] == "allocates" {
       mem.enable_show_allocates(true);
     }
+    if args[i] == "abandons" {
+      mem.enable_show_abandons(true);
+    }
     if args[i] == "freelist" {
       mem.enable_show_freelist(true);
     }

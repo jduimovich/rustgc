@@ -6,7 +6,7 @@ use std::time::SystemTime;
 #[cfg(feature="dynamic_mem")]
 const MAX_MEMORY_SLOTS: usize = 1024 * 1024 * 4;
 #[cfg(not(feature="dynamic_mem"))]
-const MAX_MEMORY_SLOTS: usize = 1024 * 128;
+const MAX_MEMORY_SLOTS: usize = 1024 * 128 * 4;
 
 type Bits = u128;
 const MARK_BITS_PER_SLOT: usize = 128;
@@ -33,6 +33,7 @@ pub struct Memory {
   lastgc_free_mem: usize,
   show_gc: bool,
   show_allocates: bool,
+  show_abandons: bool,
   show_heap_map: bool,
   show_free_list: bool,
 }
@@ -100,6 +101,7 @@ impl Memory {
       total_gc_ms: 0,
       show_gc: false,
       show_allocates: false,
+      show_abandons: false,
       show_heap_map: false,
       show_free_list: false,
     };
@@ -174,6 +176,9 @@ impl Memory {
   pub fn enable_show_allocates(&mut self, enabled: bool) {
     self.show_allocates = enabled;
   }
+  pub fn enable_show_abandons(&mut self, enabled: bool) {
+    self.show_abandons = enabled;
+  }
   fn rounded_size(unrounded_size: usize) -> usize {
     (unrounded_size + 1) & !(1) // rounded to 2
   }
@@ -196,9 +201,9 @@ impl Memory {
   fn mark_object(&mut self, obj: usize) {
     self.mark_bits[obj / MARK_BITS_PER_SLOT] |= 1 << (obj % MARK_BITS_PER_SLOT);
   }
-  fn unmark_object(&mut self, obj: usize) {
-    self.mark_bits[obj / MARK_BITS_PER_SLOT] &= !(1 << (obj % MARK_BITS_PER_SLOT));
-  }
+  // fn unmark_object(&mut self, obj: usize) {
+  //   self.mark_bits[obj / MARK_BITS_PER_SLOT] &= !(1 << (obj % MARK_BITS_PER_SLOT));
+  // }
   fn is_marked(&self, obj: usize) -> bool {
    (self.mark_bits[obj / MARK_BITS_PER_SLOT] & (1 << (obj % MARK_BITS_PER_SLOT))) != 0
   }
@@ -215,26 +220,22 @@ impl Memory {
     let mut prev: usize = 0;
     while free != 0 {
       let avail = self.get_size(free);
-      if avail == size {
-        if prev == 0 {
-          self.head = self.get_fl_next(free);
-        } else {
-          self.set_fl_next(prev, self.get_fl_next(free));
-        }
-        for index in 0..self.element_size(free) {
-          self.at_put(free, index, 0);
-        }
-        return free;
-      }
-      if avail > size {
+      if avail >= size {
         let newsize = avail - size;
-        if newsize < 2 {
-          panic!("remaining size is less than 2");
+        if newsize == 0 {
+          if prev == 0 {
+            self.head = self.get_fl_next(free);
+          } else {
+            self.set_fl_next(prev, self.get_fl_next(free));
+          }
+          for index in 0..self.element_size(free) {
+            self.at_put(free, index, 0);
+          }
+          return free;
         }
         // shrink current free to smaller size
+        let new_object:usize = free + newsize;
         self.set_size(free, newsize);
-        // new object is on the end of current free object
-        let new_object = free + newsize;
         self.set_size(new_object, size);
         for index in 0..self.element_size(new_object) {
           self.at_put(new_object, index, 0);
@@ -245,19 +246,18 @@ impl Memory {
             new_object, size
           );
         }
-        if self.head != free {
-          if self.show_allocates {
-            println!("Reset head past intermediate free blocks \n");
+        if newsize <= 2 && self.show_abandons {
             let mut show = self.head;
             while show != free {
               println!("Abandon {} size {}\n", show, self.get_size(show));
               show = self.get_fl_next(show);
-            }
+
           }
           self.head = free;
         }
         return new_object;
       }
+      //println!("LOOP Free block {} size {} too small for requested size {}\n", free, avail, size);
       prev = free;
       free = self.get_fl_next(free);
     }
