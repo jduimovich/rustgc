@@ -25,6 +25,7 @@ pub struct Memory {
 
   mark_bits: [Bits; MARK_BITS],
   roots: Vec<usize>,
+  mark_stack: Vec<usize>,
   gc_count: usize,
   allocates: usize,
   last_gc_ms: u128,
@@ -93,6 +94,7 @@ impl Memory {
 
       mark_bits: [0; MARK_BITS],
       roots: Vec::new(),
+      mark_stack: Vec::new(),
       gc_count: 0,
       allocates: 0,
       lastgc_live_mem: 0,
@@ -141,11 +143,8 @@ impl Memory {
     self.roots.push(obj);
   }
   pub fn remove_root(&mut self, obj: usize) {
-    for i in 0..self.roots.len() {
-      if obj == self.roots[i] {
-        self.roots.remove(i);
-        return;
-      }
+    if let Some(i) = self.roots.iter().position(|&r| r == obj) {
+      self.roots.swap_remove(i);
     }
   }
   pub fn at_put(&mut self, obj: usize, index: usize, value: usize) {
@@ -209,9 +208,7 @@ impl Memory {
   }
 
   fn clear_mark_bits(&mut self) {
-    for i in 0..MARK_BITS {
-      self.mark_bits[i] = 0;
-    }
+    self.mark_bits.fill(0);
   }
 
   fn allocate_object_nocompress(&mut self, unrounded_size: usize) -> usize {
@@ -228,18 +225,18 @@ impl Memory {
           } else {
             self.set_fl_next(prev, self.get_fl_next(free));
           }
-          for index in 0..self.element_size(free) {
-            self.at_put(free, index, 0);
-          }
+          let base = free + OBJECT_HEADER_SLOTS;
+          let elem = self.mem[free] - OBJECT_HEADER_SLOTS;
+          self.mem[base..base + elem].fill(0);
           return free;
         }
         // shrink current free to smaller size
         let new_object:usize = free + newsize;
         self.set_size(free, newsize);
         self.set_size(new_object, size);
-        for index in 0..self.element_size(new_object) {
-          self.at_put(new_object, index, 0);
-        }
+        let base = new_object + OBJECT_HEADER_SLOTS;
+        let elem = size - OBJECT_HEADER_SLOTS;
+        self.mem[base..base + elem].fill(0);
         if self.show_allocates {
           println!(
             "Success: allocate_object returning -> {} size {}",
@@ -323,14 +320,23 @@ impl Memory {
     }
   }
 
-  fn mark_and_scan(&mut self, object: usize) {
-    if object == 0 || self.is_marked(object) {
+  fn mark_and_scan(&mut self, root: usize) {
+    if root == 0 || self.is_marked(root) {
       return;
     }
-    let slots = self.get_size(object);
-    self.mark_object(object);
-    for i in OBJECT_HEADER_SLOTS..slots {
-      self.mark_and_scan(self.mem[object + i]);
+    self.mark_stack.push(root);
+    while let Some(object) = self.mark_stack.pop() {
+      if object == 0 || self.is_marked(object) {
+        continue;
+      }
+      let slots = self.get_size(object);
+      self.mark_object(object);
+      for i in OBJECT_HEADER_SLOTS..slots {
+        let child = self.mem[object + i];
+        if child != 0 && !self.is_marked(child) {
+          self.mark_stack.push(child);
+        }
+      }
     }
   }
 
