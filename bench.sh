@@ -1,0 +1,1 @@
+time cargo run --release
